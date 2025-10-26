@@ -251,13 +251,209 @@ function createTerrain() {
 }
 
 function createSky() {
-  const skyGeometry = new THREE.SphereGeometry(500, 32, 32);
-  const skyMaterial = new THREE.MeshBasicMaterial({
-    color: 0x87CEEB,
-    side: THREE.BackSide
-  });
-  sky = new THREE.Mesh(skyGeometry, skyMaterial);
-  scene.add(sky);
+  // Try to load an HDR equirectangular sky if available (sky.hdr in project root)
+  // Falls back to a simple colored sphere if loading fails or loader not present.
+  function fallbackSky() {
+    const skyGeometry = new THREE.SphereGeometry(500, 32, 32);
+    const skyMaterial = new THREE.MeshBasicMaterial({
+      color: 0x87CEEB,
+      side: THREE.BackSide
+    });
+    sky = new THREE.Mesh(skyGeometry, skyMaterial);
+    scene.add(sky);
+  }
+
+  // We'll try multiple candidates: prefer EXR (if available), then HDR.
+  // Prefer a 4k prefiltered file if present, then EXR, then hdr
+  const candidates = ['kloppenheim_06_puresky_4k.hdr', 'sky_4k.hdr', 'sky_4k.exr', 'sky.exr', 'sky.hdr'];
+  const MAX_BYTES = 30 * 1024 * 1024; // 30 MB threshold — increased for large 8k HDRs
+
+  const tryNext = (index) => {
+    if (index >= candidates.length) {
+      console.warn('⚠️ No environment map loaded. Using fallback sky.');
+      console.groupCollapsed('createSky: candidates tried');
+      candidates.forEach((c, i) => console.log(`#${i + 1}: ${c}`));
+      console.groupEnd();
+      fallbackSky();
+      return;
+    }
+
+    const url = candidates[index];
+    console.log(`🔎 Trying environment candidate #${index + 1}/${candidates.length}: ${url}`);
+    const ext = url.split('.').pop().toLowerCase();
+
+    // Helper to apply a texture (equirectangular) to the scene
+    const applyEnv = (texture) => {
+      try {
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        pmremGenerator.compileEquirectangularShader();
+        const envMap = pmremGenerator.fromEquirectangular(texture).texture;
+
+        scene.environment = envMap;
+        scene.background = envMap;
+
+        texture.dispose && texture.dispose();
+        pmremGenerator.dispose();
+
+        console.log(`✅ ${url} loaded and applied as environment map`);
+      } catch (e) {
+        console.warn('⚠️ Error applying environment map, trying next candidate:', e);
+        tryNext(index + 1);
+      }
+    };
+
+    // Try EXR first
+    if (ext === 'exr') {
+      if (typeof THREE.EXRLoader === 'undefined') {
+        console.warn(`createSky: EXR candidate ${url} skipped — THREE.EXRLoader not present.`);
+        tryNext(index + 1);
+        return;
+      }
+      console.log('🔧 EXRLoader found, attempting to load', url);
+      const loader = new THREE.EXRLoader();
+      loader.load(url, (tex) => {
+        applyEnv(tex);
+      }, (xhr) => {
+        if (xhr && xhr.loaded && xhr.total) console.log(`📥 ${url} loading: ${Math.round((xhr.loaded/xhr.total)*100)}%`);
+      }, (err) => {
+        console.warn(`⚠️ Failed to load ${url} with EXRLoader, trying next candidate. Error:`, err);
+        tryNext(index + 1);
+      });
+      return;
+    }
+
+    // HDR (RGBE) handling
+    if (ext === 'hdr') {
+      if (typeof THREE.RGBELoader === 'undefined') {
+        console.warn(`createSky: HDR candidate ${url} skipped — THREE.RGBELoader not present.`);
+        tryNext(index + 1);
+        return;
+      }
+      console.log('🔧 RGBELoader found, attempting to load', url);
+      const hdrUrl = url;
+
+      // First try HEAD to check size (may fail due to CORS or file://)
+      fetch(hdrUrl, { method: 'HEAD' }).then(headResp => {
+        console.log(`HEAD ${hdrUrl} -> ${headResp.status} ${headResp.statusText}`);
+        if (headResp.ok) {
+          const len = headResp.headers.get('content-length');
+          if (len && parseInt(len) > MAX_BYTES) {
+            const sizeMB = Math.round(parseInt(len) / 1024 / 1024);
+            console.warn(`⚠️ Detected ${url} size ${sizeMB} MB — very large. Prompting user before loading.`);
+
+            // Create a simple confirmation prompt in the page
+            const existing = document.getElementById('hdr-load-prompt');
+            if (existing) existing.remove();
+
+            const prompt = document.createElement('div');
+            prompt.id = 'hdr-load-prompt';
+            prompt.style.position = 'fixed';
+            prompt.style.left = '50%';
+            prompt.style.top = '20%';
+            prompt.style.transform = 'translateX(-50%)';
+            prompt.style.background = 'rgba(10,10,10,0.95)';
+            prompt.style.color = '#fff';
+            prompt.style.padding = '1.2rem 1.6rem';
+            prompt.style.border = '2px solid #1FB8CD';
+            prompt.style.borderRadius = '8px';
+            prompt.style.zIndex = 20000;
+            prompt.style.maxWidth = '90%';
+            prompt.innerHTML = `
+              <div style="font-weight:bold;margin-bottom:8px">Large environment file detected</div>
+              <div style="margin-bottom:10px">${url} is approximately ${sizeMB} MB. Loading it may be slow or crash the browser. Do you want to load it now?</div>
+              <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button class="btn-cancel" style="padding:8px 12px;border-radius:6px;background:#8B7355;border:none;color:white;">Cancel</button>
+                <button class="btn-load" style="padding:8px 12px;border-radius:6px;background:#1FB8CD;border:none;color:#041014;">Load ${sizeMB} MB file</button>
+              </div>
+            `;
+            document.body.appendChild(prompt);
+
+            // Attach handlers
+            prompt.querySelector('.btn-cancel').onclick = () => {
+              prompt.remove();
+              tryNext(index + 1);
+            };
+
+            prompt.querySelector('.btn-load').onclick = () => {
+              prompt.remove();
+
+              // Proceed to fetch+parse the large HDR (same code as below)
+              const loader = new THREE.RGBELoader();
+              loader.setDataType(THREE.UnsignedByteType);
+
+              fetch(hdrUrl).then(resp => resp.arrayBuffer()).then(buffer => {
+                try {
+                  const tex = loader.parse(buffer);
+                  applyEnv(tex);
+                } catch (e) {
+                  console.warn('⚠️ RGBE parse failed for', hdrUrl, 'falling back to loader.load or next candidate. Error:', e);
+                  loader.load(hdrUrl, (texture) => {
+                    applyEnv(texture);
+                  }, (xhr) => {
+                    if (xhr && xhr.loaded && xhr.total) console.log(`📥 ${hdrUrl} loading: ${Math.round((xhr.loaded/xhr.total)*100)}%`);
+                  }, (err) => {
+                    console.warn('⚠️ Failed to load HDR using loader.load, trying next candidate. Error:', err);
+                    tryNext(index + 1);
+                  });
+                }
+              }).catch(err => {
+                console.warn(`⚠️ Failed to fetch ${hdrUrl}, trying next candidate. Error:`, err);
+                tryNext(index + 1);
+              });
+            };
+
+            return; // wait for user action
+          }
+        }
+
+        // If file is not too large (or HEAD unavailable), proceed normally
+        const loader = new THREE.RGBELoader();
+        loader.setDataType(THREE.UnsignedByteType);
+
+        fetch(hdrUrl).then(resp => resp.arrayBuffer()).then(buffer => {
+          try {
+            // parse returns a DataTexture
+            const tex = loader.parse(buffer);
+            applyEnv(tex);
+          } catch (e) {
+            console.warn('⚠️ RGBE parse failed for', hdrUrl, 'falling back to loader.load or next candidate. Error:', e);
+            // last resort: try loader.load (may also fail)
+            loader.load(hdrUrl, (texture) => {
+              applyEnv(texture);
+            }, (xhr) => {
+              if (xhr && xhr.loaded && xhr.total) console.log(`📥 ${hdrUrl} loading: ${Math.round((xhr.loaded/xhr.total)*100)}%`);
+            }, (err) => {
+              console.warn('⚠️ Failed to load HDR using loader.load, trying next candidate. Error:', err);
+              tryNext(index + 1);
+            });
+          }
+        }).catch(err => {
+          console.warn(`⚠️ Failed to fetch ${hdrUrl}, trying next candidate. Error:`, err);
+          tryNext(index + 1);
+        });
+      }).catch(() => {
+        // HEAD failed (CORS or file://). Try fetch+parse directly
+        const loader = new THREE.RGBELoader();
+        loader.setDataType(THREE.UnsignedByteType);
+        fetch(hdrUrl).then(resp => resp.arrayBuffer()).then(buffer => {
+          try {
+            const tex = loader.parse(buffer);
+            applyEnv(tex);
+          } catch (e) {
+            console.warn('⚠️ RGBE parse failed for', hdrUrl, 'falling back to loader.load or next candidate. Error:', e);
+            loader.load(hdrUrl, (texture) => { applyEnv(texture); }, undefined, (err) => { console.warn('⚠️ Failed to load HDR:', err); tryNext(index+1); });
+          }
+        }).catch(err => { console.warn('⚠️ Failed to fetch HDR:', err); tryNext(index+1); });
+      });
+      return;
+    }
+
+    // No suitable loader for this extension, move to next
+    tryNext(index + 1);
+  };
+
+  // Start trying candidates
+  tryNext(0);
 }
 
 function createTrees() {
@@ -345,6 +541,54 @@ function createAnimals() {
     animals.push(animal);
     scene.add(animal);
   });
+}
+
+function createCave() {
+  // Simple cave back wall with a canvas texture so painting can occur
+  cave = new THREE.Group();
+
+  // Create a canvas for the wall texture (used by the painting system)
+  const wallCanvas = document.createElement('canvas');
+  wallCanvas.width = 1024;
+  wallCanvas.height = 1024;
+  const wallCtx = wallCanvas.getContext('2d');
+  // Base rock color
+  wallCtx.fillStyle = '#3C3020';
+  wallCtx.fillRect(0, 0, wallCanvas.width, wallCanvas.height);
+  // Add some subtle speckle for texture
+  for (let i = 0; i < 800; i++) {
+    wallCtx.fillStyle = `rgba(${Math.floor(Math.random() * 40 + 30)}, ${Math.floor(Math.random() * 40 + 20)}, ${Math.floor(Math.random() * 30 + 20)}, ${Math.random() * 0.25 + 0.05})`;
+    wallCtx.fillRect(Math.random() * wallCanvas.width, Math.random() * wallCanvas.height, 2, 2);
+  }
+
+  const wallTexture = new THREE.CanvasTexture(wallCanvas);
+  wallTexture.needsUpdate = true;
+
+  const wallGeom = new THREE.PlaneGeometry(40, 20);
+  const wallMat = new THREE.MeshStandardMaterial({ map: wallTexture, side: THREE.FrontSide });
+  const wallMesh = new THREE.Mesh(wallGeom, wallMat);
+  wallMesh.position.set(0, 10, -60);
+  wallMesh.receiveShadow = true;
+  wallMesh.userData = { type: 'paintableWall', interactable: false, canvas: wallCanvas, texture: wallTexture };
+
+  cave.add(wallMesh);
+
+  // Add some simple rock geometry for entrance visuals
+  const rockGeo = new THREE.SphereGeometry(6, 12, 12);
+  const rockMat = new THREE.MeshStandardMaterial({ color: 0x4b3a2b, roughness: 1 });
+  const rock = new THREE.Mesh(rockGeo, rockMat);
+  rock.position.set(-12, 4, -55);
+  rock.castShadow = true;
+  cave.add(rock);
+
+  const rock2 = rock.clone();
+  rock2.position.set(12, 3.5, -55);
+  cave.add(rock2);
+
+  scene.add(cave);
+
+  // Register paintable wall(s)
+  paintableWalls.push(wallMesh);
 }
 
 function createAnimal(x, y, z) {
