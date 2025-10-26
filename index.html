@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magdalenian Survival - Upper Paleolithic Experience</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="screen active">
+        <div class="loading-content">
+            <h1>MAGDALENIAN SURVIVAL</h1>
+            <p class="subtitle">Upper Paleolithic - 17,000 Years Ago</p>
+            <div class="loading-spinner"></div>
+            <p class="loading-text">Initializing Three.js environment...</p>
+            <button id="start-game-btn" class="btn-primary" style="display: none;">BEGIN SURVIVAL</button>
+        </div>
+    </div>
+
+    <!-- Game Container -->
+    <div id="game-container"></div>
+
+    <!-- HUD Overlay -->
+    <div id="hud" style="display: none;">
+        <!-- Survival Stats -->
+        <div class="stat-panel top-left">
+            <div class="stat-bar">
+                <span class="stat-icon">❤️</span>
+                <div class="stat-fill-container">
+                    <div class="stat-fill health" id="health-bar" style="width: 100%;"></div>
+                </div>
+                <span class="stat-value" id="health-value">100</span>
+            </div>
+            <div class="stat-bar">
+                <span class="stat-icon">🍖</span>
+                <div class="stat-fill-container">
+                    <div class="stat-fill hunger" id="hunger-bar" style="width: 100%;"></div>
+                </div>
+                <span class="stat-value" id="hunger-value">100</span>
+            </div>
+            <div class="stat-bar">
+                <span class="stat-icon">💧</span>
+                <div class="stat-fill-container">
+                    <div class="stat-fill thirst" id="thirst-bar" style="width: 100%;"></div>
+                </div>
+                <span class="stat-value" id="thirst-value">100</span>
+            </div>
+            <div class="stat-bar">
+                <span class="stat-icon">⚡</span>
+                <div class="stat-fill-container">
+                    <div class="stat-fill stamina" id="stamina-bar" style="width: 100%;"></div>
+                </div>
+                <span class="stat-value" id="stamina-value">100</span>
+            </div>
+        </div>
+
+        <!-- Environment Info -->
+        <div class="info-panel top-right">
+            <div class="info-item">
+                <span class="info-icon" id="time-icon">☀️</span>
+                <span id="time-display">Dawn - 06:00</span>
+            </div>
+            <div class="info-item">
+                <span class="info-icon">🌡️</span>
+                <span id="temp-display">15°C</span>
+            </div>
+            <div class="info-item">
+                <span class="info-icon">⛅</span>
+                <span id="weather-display">Clear</span>
+            </div>
+        </div>
+
+        <!-- Crosshair -->
+        <div id="crosshair"></div>
+
+        <!-- Interaction Prompt -->
+        <div id="interaction-prompt" style="display: none;">
+            <span id="interaction-text">Press E to interact</span>
+        </div>
+
+        <!-- Inventory -->
+        <div class="inventory-panel bottom-left">
+            <div class="panel-title">INVENTORY</div>
+            <div id="inventory-grid" class="item-grid"></div>
+        </div>
+
+        <!-- Hotbar -->
+        <div class="hotbar bottom-center">
+            <div class="hotbar-slot" data-slot="0"><span class="slot-number">1</span></div>
+            <div class="hotbar-slot" data-slot="1"><span class="slot-number">2</span></div>
+            <div class="hotbar-slot" data-slot="2"><span class="slot-number">3</span></div>
+            <div class="hotbar-slot" data-slot="3"><span class="slot-number">4</span></div>
+            <div class="hotbar-slot" data-slot="4"><span class="slot-number">5</span></div>
+        </div>
+
+        <!-- Crafting Panel -->
+        <div id="crafting-panel" class="panel" style="display: none;">
+            <button class="panel-close" onclick="closeCrafting()">&times;</button>
+            <h2>CRAFTING</h2>
+            <div id="crafting-recipes" class="recipe-grid"></div>
+        </div>
+
+        <!-- Pigment Grinding Panel -->
+        <div id="grinding-panel" class="panel" style="display: none;">
+            <button class="panel-close" onclick="closeGrinding()">&times;</button>
+            <h2>GRIND PIGMENT</h2>
+            <div class="grinding-container">
+                <div class="grinding-visual" id="grinding-visual"></div>
+                <div class="progress-container">
+                    <label>Fineness:</label>
+                    <div class="progress-bar">
+                        <div id="grinding-progress" class="progress-fill"></div>
+                    </div>
+                    <span id="grinding-percent">0%</span>
+                </div>
+                <p class="instruction">Click and drag in circular motions on the grinding stone!</p>
+            </div>
+        </div>
+
+        <!-- Paint Mixing Panel -->
+        <div id="mixing-panel" class="panel" style="display: none;">
+            <button class="panel-close" onclick="closeMixing()">&times;</button>
+            <h2>MIX PAINT</h2>
+            <div class="mixing-container">
+                <div class="mixing-selectors">
+                    <div class="selector-group">
+                        <label>Pigment:</label>
+                        <select id="pigment-select" class="form-control"></select>
+                    </div>
+                    <div class="selector-group">
+                        <label>Binder:</label>
+                        <select id="binder-select" class="form-control">
+                            <option value="animalFat">Animal Fat 🥩</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mixing-visual">
+                    <div id="mixing-shell" class="mixing-shell"></div>
+                    <div id="color-preview" class="color-preview"></div>
+                </div>
+                <div class="progress-container">
+                    <label>Stir Progress:</label>
+                    <div class="progress-bar">
+                        <div id="mixing-progress" class="progress-fill"></div>
+                    </div>
+                    <span id="mixing-percent">0%</span>
+                </div>
+                <p class="instruction">Click and drag in circular motions to stir!</p>
+            </div>
+        </div>
+
+        <!-- Cave Painting Canvas (3D Mode) -->
+        <div id="painting-panel" class="panel" style="display: none;">
+            <button class="panel-close" onclick="closePainting()">&times;</button>
+            <h2>CAVE PAINTING</h2>
+            <div class="painting-ui">
+                <div class="painting-tools">
+                    <div class="tool-section">
+                        <label>Tools:</label>
+                        <button class="tool-btn active" data-tool="finger" title="1: Finger">👆</button>
+                        <button class="tool-btn" data-tool="brush" title="2: Brush">🖌️</button>
+                        <button class="tool-btn" data-tool="spray" title="3: Spray">💨</button>
+                        <button class="tool-btn" data-tool="charcoal" title="4: Charcoal">✏️</button>
+                        <button class="tool-btn" data-tool="stencil" title="5: Hand Stencil">✋</button>
+                    </div>
+                    <div class="tool-section">
+                        <label>Colors:</label>
+                        <div id="paint-colors" class="color-swatches"></div>
+                    </div>
+                    <div class="tool-section">
+                        <label>Actions:</label>
+                        <button class="btn-secondary" onclick="undoPaintStroke()">↶ Undo (Z)</button>
+                        <button class="btn-secondary" onclick="addTemplate()">🦌 Template (T)</button>
+                    </div>
+                </div>
+                <canvas id="painting-canvas" width="1024" height="768"></canvas>
+            </div>
+        </div>
+
+        <!-- Comprehensive Help Screen -->
+        <div id="help-screen" class="panel help-screen" style="display: none;">
+            <button class="panel-close" onclick="closeHelp()">&times;</button>
+            <h2>⚔️ CONTROLS &amp; GUIDE ⚔️</h2>
+            <div class="help-columns">
+                <div class="help-column">
+                    <h3>🏃 Movement &amp; Camera</h3>
+                    <p><kbd>W</kbd> / <kbd>↑</kbd> Move Forward</p>
+                    <p><kbd>S</kbd> / <kbd>↓</kbd> Move Backward</p>
+                    <p><kbd>A</kbd> / <kbd>←</kbd> Strafe Left</p>
+                    <p><kbd>D</kbd> / <kbd>→</kbd> Strafe Right</p>
+                    <p><kbd>Shift</kbd> Sprint (drains stamina)</p>
+                    <p><kbd>Space</kbd> Jump</p>
+                    <p><kbd>Mouse</kbd> Look around</p>
+                    
+                    <h3>🤝 Interaction</h3>
+                    <p><kbd>E</kbd> Interact/Gather</p>
+                    <p><kbd>F</kbd> Pick up items</p>
+                    <p><kbd>Left Click</kbd> Use item/Attack</p>
+                </div>
+                <div class="help-column">
+                    <h3>🎒 Inventory &amp; Crafting</h3>
+                    <p><kbd>Tab</kbd> / <kbd>I</kbd> Inventory</p>
+                    <p><kbd>C</kbd> Crafting Menu</p>
+                    <p><kbd>1-5</kbd> Select Hotbar Slot</p>
+                    <p><kbd>Mouse Wheel</kbd> Cycle Hotbar</p>
+                    
+                    <h3>🎨 Cave Art Preparation</h3>
+                    <p><kbd>G</kbd> Grind Pigment</p>
+                    <p><kbd>M</kbd> Mix Paint</p>
+                    <p><small>(Requires raw pigments &amp; binders)</small></p>
+                    
+                    <h3>🖌️ Painting (Near Cave Wall)</h3>
+                    <p><kbd>P</kbd> Enter/Exit Paint Mode</p>
+                    <p><kbd>Click &amp; Drag</kbd> Paint strokes</p>
+                    <p><kbd>1-5</kbd> Select tool</p>
+                    <p><kbd>Q</kbd> / <kbd>E</kbd> Change color</p>
+                    <p><kbd>Z</kbd> Undo stroke</p>
+                    <p><kbd>T</kbd> Place template</p>
+                    <p><kbd>H</kbd> Hand stencil</p>
+                </div>
+                <div class="help-column">
+                    <h3>📋 Menus</h3>
+                    <p><kbd>ESC</kbd> Pause Menu</p>
+                    <p><kbd>H</kbd> This Help Screen</p>
+                    
+                    <h3>🎯 Survival Tips</h3>
+                    <p>• Hunt animals for meat &amp; fat</p>
+                    <p>• Gather wood, stone, flint</p>
+                    <p>• Craft tools before hunting</p>
+                    <p>• Mine ochre near cliffs</p>
+                    <p>• Grind pigments, mix with fat</p>
+                    <p>• Find cave to create art</p>
+                    <p>• Light torch at night (T)</p>
+                    
+                    <h3>🔄 Complete Workflow</h3>
+                    <p>1. Gather red ochre (mine deposits)</p>
+                    <p>2. Craft grinding stone (2 stone)</p>
+                    <p>3. Press <kbd>G</kbd> to grind ochre</p>
+                    <p>4. Hunt animal for fat</p>
+                    <p>5. Press <kbd>M</kbd> to mix paint</p>
+                    <p>6. Enter cave, find wall</p>
+                    <p>7. Press <kbd>P</kbd> to paint!</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls Help Button -->
+        <div class="controls-help bottom-right">
+            <div class="help-toggle" onclick="openHelp()" title="Press H for Help">?</div>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div id="notification" class="notification"></div>
+
+    <!-- Three.js Library -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.150.0/build/three.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
